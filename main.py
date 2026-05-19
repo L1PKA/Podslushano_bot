@@ -14,11 +14,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8904383952:AAEgL5qOyAFJrweyrTrGDDcDBJppUQIEHnI")
 MODERATION_CHAT_ID = -5157134920
 TARGET_CHANNEL_ID = -1003932701423
-CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки"
+CHANNEL_USERNAME = "https://t.me/+j4WCZVnUsNYwZWZi"
 
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 
-# СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK) В MONETAG
+# Твоя проверенная прямая ссылка с Monetag
 PARTNER_CLICK_URL = "https://omg10.com/4/11028690"
 
 # Путь для сохранения БД на хостинге Render
@@ -107,7 +107,6 @@ def is_nickname_taken(nickname):
 def register_user(user_id, tg_username, nickname):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Регистрируем только если записи вообще нет, либо обновляем без затирания старых полей
     cursor.execute("""
         INSERT INTO users (user_id, tg_username, custom_nickname, xp, level) 
         VALUES (?, ?, ?, 0, 1)
@@ -304,7 +303,7 @@ async def send_main_menu(message_or_callback, user_id):
     else:
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-# --- ОБРАБОТКА КЛИКА ПО ЕЖЕДНЕВНОМУ ПОДАРКУ ---
+# --- ОБРАБОТКА НАЖАТИЯ НА КНОПКУ ПОДАРКА (ИНСТРУКЦИЯ) ---
 @dp.callback_query(F.data == "get_free_bonus")
 async def process_free_bonus(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -315,19 +314,47 @@ async def process_free_bonus(callback: types.CallbackQuery):
         await callback.answer("⏳ Ты уже забирал свой подарок сегодня! Приходи завтра за новой порцией XP. 😉", show_alert=True)
         return
 
-    add_xp_by_user_id(user_id, 10)
-    update_user_status(user_id, "last_bonus_date", today_str)
-
+    # Опыт НЕ начисляем! Сначала требуем перейти
     builder = InlineKeyboardBuilder()
-    builder.button(text="🌍 ЗАБРАТЬ ПОДАРOК (ОТКРЫТЬ ССЫЛКУ)", url=PARTNER_CLICK_URL)
+    builder.button(text="🔗 ПЕРЕЙТИ И ПОЛУЧИТЬ", url=PARTNER_CLICK_URL)
+    builder.button(text="✅ Проверить получение", callback_data="confirm_bonus_claim")
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "🎉 **Вам успешно начислено +10 XP для продвижения в ТОП-10!**\n\n"
-        "👉 Чтобы закрепить подарок и помочь нашему боту развиваться, **обязательно нажми на синюю кнопку ниже** и посмотри предложение от наших спонсоров! Буквально 5 секунд твоего времени — и твой бонус полностью активирован! ❤️",
+        "🎁 **Ежедневный подарок на +10 XP**\n\n"
+        "Чтобы забрать свой бонус для продвижения в ТОП-10, выполни два простых шага:\n\n"
+        "1️⃣ Нажми на кнопку **«🔗 ПЕРЕЙТИ И ПОЛУЧИТЬ»** ниже и ознакомься с предложением наших спонсоров в браузере (оно откроется на 5 секунд).\n"
+        "2️⃣ Вернись в этот чат и нажми кнопку **«✅ Проверить получение»**, чтобы забрать свой опыт! ❤️",
         reply_markup=builder.as_markup(), parse_mode="Markdown"
     )
+
+# --- ПРОВЕРКА И НАЧИСЛЕНИЕ ПОСЛЕ КЛИКА ПО ССЫЛКЕ ---
+@dp.callback_query(F.data == "confirm_bonus_claim")
+async def confirm_bonus_claim(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    profile = get_user_profile(user_id)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Двойная проверка на случай, если как-то обошли
+    if profile["last_bonus_date"] == today_str:
+        await callback.answer("⏳ Ты уже получил этот бонус сегодня!", show_alert=True)
+        await send_main_menu(callback, user_id)
+        return
+
+    # Начисляем ТОЛЬКО ЗДЕСЬ, когда прожали кнопку проверки
+    add_xp_by_user_id(user_id, 10)
+    update_user_status(user_id, "last_bonus_date", today_str)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Открыть главное меню", callback_data="back_to_menu")
+
+    await callback.message.edit_text(
+        "🎉 **Отлично! Условия выполнены!**\n\n"
+        "Вам успешно начислено **+10 XP**. Твой уровень повышен, а позиция в рейтинге ТОП-10 улучшилась! Спасибо за поддержку нашего проекта! 🔥",
+        reply_markup=builder.as_markup(), parse_mode="Markdown"
+    )
+    await callback.answer("✅ +10 XP успешно зачислены!", show_alert=False)
 
 # --- ПРОСМОТР СОБСТВЕННОГО ПРОФИЛЯ ---
 @dp.callback_query(F.data == "view_my_profile")
@@ -355,17 +382,15 @@ async def view_my_profile(callback: types.CallbackQuery):
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
     await callback.message.edit_text(profile_card, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-# --- СТАРТ И РЕГИСТРАЦИЯ (ИСПРАВЛЕНО!) ---
+# --- СТАРТ И РЕГИСТРАЦИЯ ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
     
-    # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если юзер уже есть в базе — мы его НЕ регистрируем заново, а сразу открываем меню!
     if is_user_registered(user_id):
         await send_main_menu(message, user_id)
     else:
-        # Только новые пользователи проходят этот шаг
         await message.answer(
             "👋 **Здравствуйте! Добро пожаловать в нашу social сеть!**\n\n"
             "Придумай и **напиши мне свой уникальный никнейм** для регистрации профиля:"
