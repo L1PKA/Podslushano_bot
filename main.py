@@ -10,7 +10,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8904383952:AAEgL5qOyAFJrweyrTrGDDcDBJppUQIEHnI"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8904383952:AAEgL5qOyAFJrweyrTrGDDcDBJppUQIEHnI")
 MODERATION_CHAT_ID = -5157134920
 TARGET_CHANNEL_ID = -1003932701423
 CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки"
@@ -240,13 +240,13 @@ async def send_main_menu(message_or_callback, user_id):
 
     profile = get_user_profile(user_id)
     builder = InlineKeyboardBuilder()
-    builder.button(text="✍️ Отправить историю", callback_data="start_story")
+    builder.button(text="✍️ Сделать публикацию", callback_data="start_story")
     builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
     builder.button(text="🏆 Таблица Лидеров", callback_data="open_leaderboard")
     builder.adjust(1)
 
     text = (
-        f"👋 **Привет, {profile['nickname']}! Рады видеть в ПОДСЛУШАНО!**\n\n"
+        f"👋 **Привет, {profile['nickname']}! Добро пожаловать в социальную сеть!**\n\n"
         f"🏅 Твой уровень: `{profile['level']}` ({profile['xp']} XP)\n"
         f"👑 VIP-статус: {'✅ Активен (Доступен МУЛЬТИМЕДИА режим! 🔥)' if profile['is_vip'] else '❌ Не куплен (Только обычный текст)'}\n"
         f"⭐ Модератор: {'✅ Активен' if profile['is_moderator'] else '❌ Не куплен'}\n\n"
@@ -265,8 +265,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await send_main_menu(message, message.from_user.id)
     else:
         await message.answer(
-            "👋 **Здравствуйте! Добро пожаловать в проект «ПОДСЛУШАНО»!**\n\n"
-            "Придумай и **напиши мне свой уникальный никнейм** для регистрации:"
+            "👋 **Здравствуйте! Добро пожаловать в нашу социальную сеть!**\n\n"
+            "Придумай и **напиши мне свой уникальный никнейм** для регистрации профиля:"
         )
         await state.set_state(RegStates.waiting_for_nickname)
 
@@ -319,17 +319,17 @@ async def open_shop(callback: types.CallbackQuery):
     builder.button(text="⬅️ Назад", callback_data="back_to_menu")
     builder.adjust(1)
     await callback.message.edit_text(
-        "🏪 **Магазин проектов Подслушано**\n\n"
-        "• **VIP статус (50 ⭐):** Выделение постов короной + быстрая проверка + **СВОБОДА ОТПРАВКИ** (Картинки, Стикеры, Голосовые, Видео)!\n"
-        "• **Модератор (300 ⭐):** Полный доступ в закрытый админ-чат модерации.",
+        "🏪 **Магазин внутренних привилегий**\n\n"
+        "• **VIP статус (50 ⭐):** Выделение постов короной + быстрая проверка + **СВОБОДА ПУБЛИКАЦИЙ** (Картинки, Стикеры, Голосовые, Видео)!\n"
+        "• **Модератор (300 ⭐):** Полный доступ в закрытый админ-чат модерации постов.",
         reply_markup=builder.as_markup(), parse_mode="Markdown"
     )
 
 @dp.callback_query(F.data == "buy_vip_stars")
 async def send_vip_invoice(callback: types.CallbackQuery):
     await callback.message.answer_invoice(
-        title="👑 VIP-Статус «Подслушано»",
-        description="Разблокирует отправку стикеров/фото/видео, выделение короной и быструю модерацию.",
+        title="👑 VIP-Статус сети",
+        description="Разблокирует отправку стикеров/фото/видео в публикации, выделение короной и быструю модерацию.",
         payload="buy_vip_status_payload", provider_token="", currency="XTR",
         prices=[types.LabeledPrice(label="Покупка VIP", amount=50)]
     )
@@ -338,8 +338,8 @@ async def send_vip_invoice(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "buy_moder_stars")
 async def send_moder_invoice(callback: types.CallbackQuery):
     await callback.message.answer_invoice(
-        title="⭐ Роль Модератора «Подслушано»",
-        description="Доступ в админ-чат модерации.",
+        title="⭐ Роль Модератора сети",
+        description="Доступ в админ-чат модерации новых публикаций.",
         payload="buy_moder_status_payload", provider_token="", currency="XTR",
         prices=[types.LabeledPrice(label="Покупка Модерки", amount=300)]
     )
@@ -392,7 +392,7 @@ async def show_leaderboard(callback: types.CallbackQuery):
 async def back_to_menu(callback: types.CallbackQuery):
     await send_main_menu(callback, callback.from_user.id)
 
-# --- ПРИЕМ ИСТОРИЙ ---
+# --- ПРИЕМ ПУБЛИКАЦИЙ ---
 @dp.callback_query(F.data == "start_story")
 async def start_story(callback: types.CallbackQuery, state: FSMContext):
     if not is_user_registered(callback.from_user.id):
@@ -400,9 +400,9 @@ async def start_story(callback: types.CallbackQuery, state: FSMContext):
         return
     profile = get_user_profile(callback.from_user.id)
     if profile["is_vip"]:
-        await callback.message.answer("🌟 **VIP-режим активен!**\nОтправь мне свою историю. Можешь слать: Текст, Фото, Стикеры, Video или Голосовые!\n\n⚠️ *Отправка файлов заблокирована.*")
+        await callback.message.answer("🌟 **VIP-режим активен!**\nОтправь мне контент для создания публикации. Доступно: Текст, Фото, Стикеры, Видео или Голосовые!\n\n⚠️ *Отправка тяжелых файлов документов заблокирована.*")
     else:
-        await callback.message.answer("📝 **Обычный режим:**\nНапиши и отправь мне текст своей истории.\n\n⚠️ _Стикеры, картинки, video и голосовые доступны только для VIP-персон!_")
+        await callback.message.answer("📝 **Обычный режим:**\nНапиши и отправь мне текст своей публикации.\n\n⚠️ _Стикеры, картинки, видео и голосовые доступны только для VIP-аккаунтов!_")
     await state.set_state(StoryStates.waiting_for_content)
 
 @dp.message(StoryStates.waiting_for_content, F.chat.type == "private")
@@ -419,11 +419,11 @@ async def process_story_content(message: types.Message, state: FSMContext):
         return
 
     if message.document:
-        await message.answer("❌ **Отправка файлов запрещена!**")
+        await message.answer("❌ **Отправка файлов документов запрещена!**")
         return
 
     if not profile["is_vip"] and not message.text:
-        await message.answer("❌ **Обычные пользователи могут отправлять только чистый текст!**")
+        await message.answer("❌ **Обычные профили могут отправлять только чистый текст!**")
         return
 
     content_type = "text"
@@ -433,12 +433,12 @@ async def process_story_content(message: types.Message, state: FSMContext):
 
     if message.text:
         caption = message.text
-        reply_text = "📝 Текст истории успешно записан!"
+        reply_text = "📝 Текст публикации успешно записан!"
     elif message.photo:
         content_type = "photo"
         file_id = message.photo[-1].file_id
         caption = message.caption if message.caption else ""
-        reply_text = "📸 Фотография успешно принята!"
+        reply_text = "📸 Изображение успешно принято!"
     elif message.sticker:
         content_type = "sticker"
         file_id = message.sticker.file_id
@@ -452,7 +452,7 @@ async def process_story_content(message: types.Message, state: FSMContext):
         content_type = "video"
         file_id = message.video.file_id
         caption = message.caption if message.caption else ""
-        reply_text = "📹 Видео успешно загружено!"
+        reply_text = "📹 Видеоматериал успешно загружен!"
     else:
         await message.answer("❌ Этот тип сообщения не поддерживается.")
         return
@@ -461,7 +461,7 @@ async def process_story_content(message: types.Message, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.button(text="🥷 Анонимно", callback_data=f"anon___{profile['nickname']}")
     builder.button(text=f"📝 Под ником ({profile['nickname']})", callback_data=f"pub___{profile['nickname']}")
-    await message.answer(f"{reply_text}\n\nВыбери формат публикации истории:", reply_markup=builder.as_markup())
+    await message.answer(f"{reply_text}\n\nВыбери формат отображения публикации:", reply_markup=builder.as_markup())
     await state.set_state(StoryStates.waiting_for_privacy)
 
 @dp.callback_query(StoryStates.waiting_for_privacy, F.data.startswith("anon") | F.data.startswith("pub"))
@@ -476,7 +476,7 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
     vip_prefix = "👑 [VIP] " if profile["is_vip"] == 1 else ""
     tg_username = f"@{user.username}" if user.username else "Нет"
     user_info = (
-        f"👤 **ТГ:** [{user.full_name}](tg://user?id={user.id}) ({tg_username})\n"
+        f"👤 **Профиль:** [{user.full_name}](tg://user?id={user.id}) ({tg_username})\n"
         f"🆔 **Ник в БД:** {vip_prefix}`{profile['nickname']}`"
     )
     if "anon" in callback.data:
@@ -486,7 +486,7 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
         privacy_status = f"📝 **Публично как {profile['nickname']}**"
         approve_callback = f"ap_pb___{profile['nickname']}"
         
-    await callback.message.edit_text("📥 Отправлено модераторам на проверку!")
+    await callback.message.edit_text("📥 Публикация отправлена команде модераторов!")
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Опубликовать", callback_data=approve_callback)
     builder.button(text="❌ Отклонить", callback_data="rej_post")
@@ -521,7 +521,7 @@ def get_channel_keyboard(message_id, likes=0, dislikes=0, nickname=None):
         builder.row(types.InlineKeyboardButton(text=f"👤 Профиль автора: {nickname}", callback_data=f"viewprof_{nickname}"))
     return builder.as_markup()
 
-# --- МОДЕРАЦИЯ (С ИМЕНЕМ МОДЕРАТОРА) ---
+# --- МОДЕРАЦИЯ (ИНФО О МОДЕРАТОРЕ ТОЛЬКО В АДМИН-ЧАТЕ) ---
 @dp.callback_query(F.data.startswith("ap_"))
 async def process_moderation_approve(callback: types.CallbackQuery):
     if callback.message.chat.id != MODERATION_CHAT_ID:
@@ -535,7 +535,7 @@ async def process_moderation_approve(callback: types.CallbackQuery):
     except (IndexError, AttributeError):
         story_content = "[Медиафайл]" if not callback.message.caption else callback.message.caption
 
-    # Получаем никнейм модератора, который нажал кнопку
+    # Получаем никнейм модератора, который одобрил публикацию
     mod_user = callback.from_user
     mod_name = f"@{mod_user.username}" if mod_user.username else mod_user.full_name
 
@@ -551,6 +551,8 @@ async def process_moderation_approve(callback: types.CallbackQuery):
     sticker_id = callback.message.reply_to_message.sticker.file_id if (callback.message.reply_to_message and callback.message.reply_to_message.sticker) else None
 
     out_msg = None
+    
+    # 1. АНОНИМНО
     if action.startswith("ap_an"):
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         final_caption = f"{vip_emoji}{clean_text}"
@@ -564,7 +566,7 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             out_msg = await bot.send_video(chat_id=TARGET_CHANNEL_ID, video=video_id, caption=final_caption, reply_markup=fake_kb)
         elif sticker_id:
             await bot.send_sticker(chat_id=TARGET_CHANNEL_ID, sticker=sticker_id)
-            out_msg = await bot.send_message(chat_id=TARGET_CHANNEL_ID, text=f"🎯 Свежий стикер от анонима!", reply_markup=fake_kb)
+            out_msg = await bot.send_message(chat_id=TARGET_CHANNEL_ID, text=f"🎯 Новая публикация от анонима!", reply_markup=fake_kb)
         else:
             out_msg = await bot.send_message(chat_id=TARGET_CHANNEL_ID, text=final_caption, reply_markup=fake_kb)
             
@@ -572,18 +574,19 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0))
             save_channel_post(out_msg.message_id, nickname_for_db)
         
-        # Лог для админ-чата
-        text_log = f"🟢 Опубликовано анонимно!\n📋 Модератор: {mod_name}\n\n{clean_text}"
+        # Лог только для админов
+        text_log = f"🟢 Опубликовано анонимно!\n📋 Проверил модератор: {mod_name}\n\n{clean_text}"
 
+    # 2. ПОД НИКОМ
     elif action.startswith("ap_pb"):
         vip_status_text = "✨ VIP-Автор" if vip_emoji else "Автор"
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         
-        # Текст поста с указанием модератора, принявшего пост
+        # Текст поста для публичного канала (без инфы о модераторе)
         if clean_text:
-            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`\n📋 **Модератор:** {mod_name}"
+            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`"
         else:
-            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`\n📋 **Модератор:** {mod_name}"
+            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`"
             
         fake_kb = get_channel_keyboard(0, 0, 0, nickname_for_db)
         
@@ -603,8 +606,8 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0, nickname_for_db))
             save_channel_post(out_msg.message_id, nickname_for_db)
             
-        # Лог для админ-чата
-        text_log = f"🟢 Опубликовано под ником {nickname_for_db}!\n📋 Модератор: {mod_name}\n\n{clean_text}"
+        # Лог только для админов
+        text_log = f"🟢 Опубликовано под ником {nickname_for_db}!\n📋 Проверил модератор: {mod_name}\n\n{clean_text}"
 
     try:
         if callback.message.photo or callback.message.voice or callback.message.video:
@@ -631,7 +634,7 @@ async def process_moderation_reject(callback: types.CallbackQuery):
             await callback.message.edit_text(text=f"🔴 Отклонено модератором: {mod_name}")
     except Exception:
         pass
-    await callback.answer("Пост успешно отклонен!")
+    await callback.answer("Публикация отклонена!")
 
 # --- ОБРАБОТКА ЛАЙКОВ ---
 @dp.callback_query(F.data == "like_click")
@@ -640,16 +643,16 @@ async def process_like_click(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     author_nickname = get_author_by_post(message_id)
     if not author_nickname:
-        await callback.answer("⚠️ Ошибка: Автор поста не найден в БД.", show_alert=True)
+        await callback.answer("⚠️ Ошибка: Автор публикации не найден в БД.", show_alert=True)
         return
     change, total_likes, total_dislikes = toggle_like(message_id, user_id)
     add_xp_by_nickname(author_nickname, change)
     try:
         await callback.message.edit_reply_markup(reply_markup=get_channel_keyboard(message_id, total_likes, total_dislikes, author_nickname))
         if change == 1:
-            await callback.answer("❤️ Вы поставили лайк! Автору начислено +1 XP.")
+            await callback.answer("❤️ Лайк поставлен! Автору начислено +1 XP.")
         else:
-            await callback.answer("💔 Вы убрали лайк. У автора списано 1 XP.")
+            await callback.answer("💔 Лайк убран. У автора списано 1 XP.")
     except Exception:
         await callback.answer()
 
@@ -660,14 +663,14 @@ async def process_dislike_click(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     author_nickname = get_author_by_post(message_id)
     if not author_nickname:
-        await callback.answer("⚠️ Ошибка: Автор поста не найден в БД.", show_alert=True)
+        await callback.answer("⚠️ Ошибка: Автор публикации не найден в БД.", show_alert=True)
         return
     had_like, total_likes, total_dislikes = toggle_dislike(message_id, user_id)
     if had_like:
         add_xp_by_nickname(author_nickname, -1)
     try:
         await callback.message.edit_reply_markup(reply_markup=get_channel_keyboard(message_id, total_likes, total_dislikes, author_nickname))
-        await callback.answer("👎 Вы поставили дизлайк! (На рейтинг и XP автора это не влияет)")
+        await callback.answer("👎 Дизлайк принят! (На рейтинг и XP автора это не влияет)")
     except Exception:
         await callback.answer()
 
