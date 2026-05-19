@@ -19,7 +19,7 @@ CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 
 # СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK) В MONETAG
-PARTNER_CLICK_URL = "ВСТАВЬ_СЮДА_ПРАВИЛЬНУЮ_ССЫЛКУ_ОТ_MONETAG"
+PARTNER_CLICK_URL = "https://omg10.com/4/11028317"
 
 # Путь для сохранения БД на хостинге Render
 DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
