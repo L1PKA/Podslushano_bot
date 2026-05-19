@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sqlite3
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -11,15 +13,28 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 BOT_TOKEN = "8904383952:AAEgL5qOyAFJrweyrTrGDDcDBJppUQIEHnI"
 MODERATION_CHAT_ID = -5157134920
 TARGET_CHANNEL_ID = -1003932701423
-CHANNEL_USERNAME = "+j4WCZVnUsNYwZWZi" # НАПРИМЕР: podslushano_news (нужно для ссылки на комменты)
+CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки"
 
-# Секретный код администратора
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 # ------------------
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# --- МИНИ-ВЕБ СЕРВЕР ДЛЯ ОБХОДА БЛОКИРОВКИ RENDER ---
+async def handle(request):
+    return web.Response(text="Бот работает в фоновом режиме 24/7!")
+
+async def start_webhook_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"Мини-веб сервер успешно запущен на порту {port}")
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ ---
 def init_db():
@@ -49,7 +64,6 @@ def init_db():
             PRIMARY KEY (message_id, user_id)
         )
     """)
-    # Новая таблица для дизлайков
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS post_dislikes (
             message_id INTEGER,
@@ -165,25 +179,19 @@ def get_leaderboard():
 def toggle_like(message_id, user_id):
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    
-    # Сначала проверяем, нет ли дизлайка от этого юзера, если есть — убираем
     cursor.execute("DELETE FROM post_dislikes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
-    
     cursor.execute("SELECT 1 FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     exists = cursor.fetchone()
-    
     if exists:
         cursor.execute("DELETE FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
         change = -1
     else:
         cursor.execute("INSERT INTO post_likes (message_id, user_id) VALUES (?, ?)", (message_id, user_id))
         change = 1
-        
     cursor.execute("SELECT COUNT(*) FROM post_likes WHERE message_id = ?", (message_id,))
     total_likes = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM post_dislikes WHERE message_id = ?", (message_id,))
     total_dislikes = cursor.fetchone()[0]
-    
     conn.commit()
     conn.close()
     return change, total_likes, total_dislikes
@@ -191,26 +199,20 @@ def toggle_like(message_id, user_id):
 def toggle_dislike(message_id, user_id):
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    
-    # Если от этого юзера был лайк — убираем его (и возвращаем True, чтобы снять XP автора в коде обработчика)
     cursor.execute("SELECT 1 FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     had_like = cursor.fetchone() is not None
     if had_like:
         cursor.execute("DELETE FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
-    
     cursor.execute("SELECT 1 FROM post_dislikes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     exists = cursor.fetchone()
-    
     if exists:
         cursor.execute("DELETE FROM post_dislikes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     else:
         cursor.execute("INSERT INTO post_dislikes (message_id, user_id) VALUES (?, ?)", (message_id, user_id))
-        
     cursor.execute("SELECT COUNT(*) FROM post_likes WHERE message_id = ?", (message_id,))
     total_likes = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM post_dislikes WHERE message_id = ?", (message_id,))
     total_dislikes = cursor.fetchone()[0]
-    
     conn.commit()
     conn.close()
     return had_like, total_likes, total_dislikes
@@ -288,15 +290,12 @@ async def process_nickname(message: types.Message, state: FSMContext):
 async def channel_view_profile(callback: types.CallbackQuery):
     target_nick = callback.data.replace("viewprof_", "")
     prof = get_profile_by_nickname(target_nick)
-    
     if not prof:
         await callback.answer("❌ Профиль этого автора не найден.", show_alert=True)
         return
-        
     rank = get_user_rank(prof["user_id"])
     vip_text = "👑 Да (VIP-Пользователь)" if prof["is_vip"] else "❌ Нет"
     mod_text = "⭐ Да (Модератор)" if prof["is_moderator"] else "❌ Нет"
-    
     profile_card = (
         f"👤 **АНКЕТА АВТОРА:** `{prof['nickname']}`\n\n"
         f"📊 Место в общем Топе: **#{rank}**\n"
@@ -305,7 +304,6 @@ async def channel_view_profile(callback: types.CallbackQuery):
         f"💎 VIP-статус: {vip_text}\n"
         f"💼 Модератор: {mod_text}"
     )
-    
     try:
         await bot.send_message(chat_id=callback.from_user.id, text=profile_card, parse_mode="Markdown")
         await callback.answer(f"📋 Анкета автора {target_nick} отправлена тебе в ЛС!", show_alert=False)
@@ -355,11 +353,9 @@ async def process_pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
 async def process_successful_payment(message: types.Message):
     payload = message.successful_payment.invoice_payload
     user_id = message.from_user.id
-    
     if payload == "buy_vip_status_payload":
         update_user_status(user_id, "is_vip", 1)
         await message.answer("👑 **Оплата прошла успешно!** VIP-статус активирован! Перезапустите меню через /start.")
-        
     elif payload == "buy_moder_status_payload":
         update_user_status(user_id, "is_moderator", 1)
         try:
@@ -402,7 +398,6 @@ async def start_story(callback: types.CallbackQuery, state: FSMContext):
     if not is_user_registered(callback.from_user.id):
         await callback.answer("Сначала зарегистрируйся через /start!", show_alert=True)
         return
-    
     profile = get_user_profile(callback.from_user.id)
     if profile["is_vip"]:
         await callback.message.answer("🌟 **VIP-режим активен!**\nОтправь мне свою историю. Можешь слать: Текст, Фото, Стикеры, Video или Голосовые!\n\n⚠️ *Отправка файлов заблокирована.*")
@@ -463,7 +458,6 @@ async def process_story_content(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(story_text=caption, file_id=file_id, content_type=content_type)
-
     builder = InlineKeyboardBuilder()
     builder.button(text="🥷 Анонимно", callback_data=f"anon___{profile['nickname']}")
     builder.button(text=f"📝 Под ником ({profile['nickname']})", callback_data=f"pub___{profile['nickname']}")
@@ -481,12 +475,10 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
     profile = get_user_profile(user.id)
     vip_prefix = "👑 [VIP] " if profile["is_vip"] == 1 else ""
     tg_username = f"@{user.username}" if user.username else "Нет"
-    
     user_info = (
         f"👤 **ТГ:** [{user.full_name}](tg://user?id={user.id}) ({tg_username})\n"
         f"🆔 **Ник в БД:** {vip_prefix}`{profile['nickname']}`"
     )
-    
     if "anon" in callback.data:
         privacy_status = "🥷 **АНОНИМНО**"
         approve_callback = f"ap_an___{profile['nickname']}"
@@ -495,7 +487,6 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
         approve_callback = f"ap_pb___{profile['nickname']}"
         
     await callback.message.edit_text("📥 Отправлено модераторам на проверку!")
-    
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Опубликовать", callback_data=approve_callback)
     builder.button(text="❌ Отклонить", callback_data="rej_post")
@@ -518,40 +509,35 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
         await bot.send_voice(chat_id=MODERATION_CHAT_ID, voice=file_id, caption=moderation_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     elif content_type == "video":
         await bot.send_video(chat_id=MODERATION_CHAT_ID, video=file_id, caption=moderation_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-        
     await state.clear()
 
-# Функция генерации кнопок для постов канала (Лайк, Дизлайк, Комменты, Профиль)
 def get_channel_keyboard(message_id, likes=0, dislikes=0, nickname=None):
     builder = InlineKeyboardBuilder()
-    # Первым рядом идут кнопки реакций
     builder.button(text=f"👍 {likes}", callback_data="like_click")
     builder.button(text=f"👎 {dislikes}", callback_data="dislike_click")
-    # Кнопка перехода в комментарии к посту
     builder.button(text="💬 Комменты", url=f"https://t.me/{CHANNEL_USERNAME}/{message_id}?comment=1")
-    builder.adjust(3) # Выстраиваем их строго в одну строчку
-    
-    # Если пост публичный, вторым рядом добавляем профиль автора
+    builder.adjust(3)
     if nickname:
         builder.row(types.InlineKeyboardButton(text=f"👤 Профиль автора: {nickname}", callback_data=f"viewprof_{nickname}"))
     return builder.as_markup()
 
-# --- МОДЕРАЦИЯ ---
+# --- МОДЕРАЦИЯ (С ИМЕНЕМ МОДЕРАТОРА) ---
 @dp.callback_query(F.data.startswith("ap_"))
 async def process_moderation_approve(callback: types.CallbackQuery):
     if callback.message.chat.id != MODERATION_CHAT_ID:
         return
-
     action = callback.data
     original_text = callback.message.caption if callback.message.caption else callback.message.text
-    
     if not original_text and callback.message.reply_to_message:
         original_text = callback.message.text
-        
     try:
         story_content = original_text.split("-------------------\n\n")[1]
     except (IndexError, AttributeError):
         story_content = "[Медиафайл]" if not callback.message.caption else callback.message.caption
+
+    # Получаем никнейм модератора, который нажал кнопку
+    mod_user = callback.from_user
+    mod_name = f"@{mod_user.username}" if mod_user.username else mod_user.full_name
 
     vip_emoji = ""
     nickname_for_db = action.split("___")[1]
@@ -562,18 +548,12 @@ async def process_moderation_approve(callback: types.CallbackQuery):
     photo_id = callback.message.photo[-1].file_id if callback.message.photo else None
     voice_id = callback.message.voice.file_id if callback.message.voice else None
     video_id = callback.message.video.file_id if callback.message.video else None
-    
-    sticker_id = None
-    if callback.message.reply_to_message and callback.message.reply_to_message.sticker:
-        sticker_id = callback.message.reply_to_message.sticker.file_id
+    sticker_id = callback.message.reply_to_message.sticker.file_id if (callback.message.reply_to_message and callback.message.reply_to_message.sticker) else None
 
     out_msg = None
-
     if action.startswith("ap_an"):
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         final_caption = f"{vip_emoji}{clean_text}"
-        
-        # Временно создаем пустую клавиатуру, так как айди сообщения мы узнаем только ПОСЛЕ отправки
         fake_kb = get_channel_keyboard(0, 0, 0)
         
         if photo_id:
@@ -589,21 +569,22 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             out_msg = await bot.send_message(chat_id=TARGET_CHANNEL_ID, text=final_caption, reply_markup=fake_kb)
             
         if out_msg:
-            # Теперь, зная реальный message_id, обновляем инлайн-кнопки (чтобы ссылка на комменты вела куда надо)
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0))
             save_channel_post(out_msg.message_id, nickname_for_db)
-            
-        text_log = f"🟢 Опубликовано анонимно!\n\n{clean_text}"
+        
+        # Лог для админ-чата
+        text_log = f"🟢 Опубликовано анонимно!\n📋 Модератор: {mod_name}\n\n{clean_text}"
 
     elif action.startswith("ap_pb"):
         vip_status_text = "✨ VIP-Автор" if vip_emoji else "Автор"
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         
+        # Текст поста с указанием модератора, принявшего пост
         if clean_text:
-            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`"
+            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`\n📋 **Модератор:** {mod_name}"
         else:
-            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`"
-        
+            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`\n📋 **Модератор:** {mod_name}"
+            
         fake_kb = get_channel_keyboard(0, 0, 0, nickname_for_db)
         
         if photo_id:
@@ -622,7 +603,8 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0, nickname_for_db))
             save_channel_post(out_msg.message_id, nickname_for_db)
             
-        text_log = f"🟢 Опубликовано под ником {nickname_for_db}!\n\n{clean_text}"
+        # Лог для админ-чата
+        text_log = f"🟢 Опубликовано под ником {nickname_for_db}!\n📋 Модератор: {mod_name}\n\n{clean_text}"
 
     try:
         if callback.message.photo or callback.message.voice or callback.message.video:
@@ -637,11 +619,16 @@ async def process_moderation_approve(callback: types.CallbackQuery):
 async def process_moderation_reject(callback: types.CallbackQuery):
     if callback.message.chat.id != MODERATION_CHAT_ID:
         return
+    
+    # Получаем никнейм модератора, отклонившего пост
+    mod_user = callback.from_user
+    mod_name = f"@{mod_user.username}" if mod_user.username else mod_user.full_name
+    
     try:
         if callback.message.photo or callback.message.voice or callback.message.video:
-            await callback.message.edit_caption(caption="🔴 Отклонено модератором.")
+            await callback.message.edit_caption(caption=f"🔴 Отклонено модератором: {mod_name}")
         else:
-            await callback.message.edit_text(text="🔴 Отклонено модератором.")
+            await callback.message.edit_text(text=f"🔴 Отклонено модератором: {mod_name}")
     except Exception:
         pass
     await callback.answer("Пост успешно отклонен!")
@@ -651,15 +638,12 @@ async def process_moderation_reject(callback: types.CallbackQuery):
 async def process_like_click(callback: types.CallbackQuery):
     message_id = callback.message.message_id
     user_id = callback.from_user.id
-    
     author_nickname = get_author_by_post(message_id)
     if not author_nickname:
         await callback.answer("⚠️ Ошибка: Автор поста не найден в БД.", show_alert=True)
         return
-        
     change, total_likes, total_dislikes = toggle_like(message_id, user_id)
     add_xp_by_nickname(author_nickname, change)
-    
     try:
         await callback.message.edit_reply_markup(reply_markup=get_channel_keyboard(message_id, total_likes, total_dislikes, author_nickname))
         if change == 1:
@@ -669,24 +653,18 @@ async def process_like_click(callback: types.CallbackQuery):
     except Exception:
         await callback.answer()
 
-# --- ОБРАБОТКА ДИЗЛАЙКОВ (БЕЗ ВЛИЯНИЯ НА XP) ---
+# --- ОБРАБОТКА ДИЗЛАЙКОВ ---
 @dp.callback_query(F.data == "dislike_click")
 async def process_dislike_click(callback: types.CallbackQuery):
     message_id = callback.message.message_id
     user_id = callback.from_user.id
-    
     author_nickname = get_author_by_post(message_id)
     if not author_nickname:
         await callback.answer("⚠️ Ошибка: Автор поста не найден в БД.", show_alert=True)
         return
-        
-    # had_like вернет True, если юзер раньше ставил лайк этому посту, а теперь ткнул дизлайк
     had_like, total_likes, total_dislikes = toggle_dislike(message_id, user_id)
-    
-    # Если юзер передумал и сменил лайк на дизлайк, забираем 1 XP, который давали за прошлый лайк
     if had_like:
         add_xp_by_nickname(author_nickname, -1)
-    
     try:
         await callback.message.edit_reply_markup(reply_markup=get_channel_keyboard(message_id, total_likes, total_dislikes, author_nickname))
         await callback.answer("👎 Вы поставили дизлайк! (На рейтинг и XP автора это не влияет)")
@@ -696,10 +674,8 @@ async def process_dislike_click(callback: types.CallbackQuery):
 # --- ЗАПУСК БОТА ---
 async def main():
     init_db()
-    await dp.start_polling(
-        bot, 
-        allowed_updates=["message", "callback_query"]
-    )
+    asyncio.create_task(start_webhook_server())
+    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
 
 if __name__ == "__main__":
     asyncio.run(main())
