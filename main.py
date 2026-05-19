@@ -18,12 +18,12 @@ CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки
 
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 
-# СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK)
-PARTNER_CLICK_URL = "https://omg10.com/4/11028317"
+# СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK) В MONETAG
+PARTNER_CLICK_URL = "ВСТАВЬ_СЮДА_ПРАВИЛЬНУЮ_ССЫЛКУ_ОТ_MONETAG"
 
 # Путь для сохранения БД на хостинге Render
 DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
-------------------
+# ------------------
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -263,7 +263,7 @@ class StoryStates(StatesGroup):
     waiting_for_content = State()
     waiting_for_privacy = State()
 
-# --- ГЛАВНОЕ МЕНЮ ---
+# --- ГЛАВНОЕ МЕНЮ (ТЕПЕРЬ 5 КНОПОК) ---
 async def send_main_menu(message_or_callback, user_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -284,12 +284,13 @@ async def send_main_menu(message_or_callback, user_id):
     if top_title:
         status_line += f"\n🏆 Привилегия топа: **{top_title}**"
 
+    # Создаем меню со всеми 5 кнопками
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ Сделать публикацию", callback_data="start_story")
-    builder.button(text="🎁 Забрать бонус (+5 XP)", callback_data="get_free_bonus")
     builder.button(text="👤 Мой профиль", callback_data="view_my_profile")
     builder.button(text="🏆 Таблица Лидеров", callback_data="open_leaderboard")
     builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
+    builder.button(text="🎁 Ежедневный подарок (+10 XP)", callback_data="get_free_bonus") # НАША ПЯТАЯ КНОПКА 🔥
     builder.adjust(1)
 
     text = (
@@ -303,7 +304,7 @@ async def send_main_menu(message_or_callback, user_id):
     else:
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-# --- ОБРАБОТКА КЛИКА ПО БОНУСУ (ПОД СМАРТЛИНК) ---
+# --- ОБРАБОТКА КЛИКА ПО ЕЖЕДНЕВНОМУ ПОДАРКУ (НАЧИСЛЯЕТСЯ ТЕПЕРЬ 10 XP) ---
 @dp.callback_query(F.data == "get_free_bonus")
 async def process_free_bonus(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -311,21 +312,21 @@ async def process_free_bonus(callback: types.CallbackQuery):
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     if profile["last_bonus_date"] == today_str:
-        await callback.answer("⏳ Ты уже забирал бонус сегодня! Приходи завтра. 😉", show_alert=True)
+        await callback.answer("⏳ Ты уже забирал свой подарок сегодня! Приходи завтра за новой порцией XP. 😉", show_alert=True)
         return
 
-    # Начисляем опыт сразу
-    add_xp_by_user_id(user_id, 5)
+    # Начисляем ровно 10 XP за клик!
+    add_xp_by_user_id(user_id, 10)
     update_user_status(user_id, "last_bonus_date", today_str)
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="🌍 ПОЛУЧИТЬ БОНУС (ОТКРЫТЬ ССЫЛКУ)", url=PARTNER_CLICK_URL)
+    builder.button(text="🌍 ЗАБРАТЬ ПОДАРOК (ОТКРЫТЬ ССЫЛКУ)", url=PARTNER_CLICK_URL)
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "🎉 **Вам успешно начислено +5 XP для продвижения в ТОП-10!**\n\n"
-        "👉 Чтобы подтвердить получение бонуса и поддержать нашу соцсеть, **обязательно нажми на синюю кнопку ниже** и ознакомься с интересным предложением от спонсоров! Тебе это займет 5 секунд, а боту поможет работать дальше! ❤️",
+        "🎉 **Вам успешно начислено +10 XP для продвижения в ТОП-10!**\n\n"
+        "👉 Чтобы закрепить подарок и помочь нашему боту развиваться, **обязательно нажми на синюю кнопку ниже** и посмотри предложение от наших спонсоров! Буквально 5 секунд твоего времени — и твой бонус полностью активирован! ❤️",
         reply_markup=builder.as_markup(), parse_mode="Markdown"
     )
 
