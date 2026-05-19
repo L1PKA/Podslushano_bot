@@ -19,7 +19,7 @@ CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 
 # СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK) В MONETAG
-PARTNER_CLICK_URL = "https://omg10.com/4/11028317"
+PARTNER_CLICK_URL = "ВСТАВЬ_СЮДА_ПРАВИЛЬНУЮ_ССЫЛКУ_ОТ_MONETAG"
 
 # Путь для сохранения БД на хостинге Render
 DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
@@ -107,9 +107,10 @@ def is_nickname_taken(nickname):
 def register_user(user_id, tg_username, nickname):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # Регистрируем только если записи вообще нет, либо обновляем без затирания старых полей
     cursor.execute("""
-        INSERT INTO users (user_id, tg_username, custom_nickname) 
-        VALUES (?, ?, ?)
+        INSERT INTO users (user_id, tg_username, custom_nickname, xp, level) 
+        VALUES (?, ?, ?, 0, 1)
         ON CONFLICT(user_id) DO UPDATE SET tg_username=?, custom_nickname=?
     """, (user_id, tg_username, nickname, tg_username, nickname))
     conn.commit()
@@ -263,7 +264,7 @@ class StoryStates(StatesGroup):
     waiting_for_content = State()
     waiting_for_privacy = State()
 
-# --- ГЛАВНОЕ МЕНЮ (ТЕПЕРЬ 5 КНОПОК) ---
+# --- ГЛАВНОЕ МЕНЮ ---
 async def send_main_menu(message_or_callback, user_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -284,13 +285,12 @@ async def send_main_menu(message_or_callback, user_id):
     if top_title:
         status_line += f"\n🏆 Привилегия топа: **{top_title}**"
 
-    # Создаем меню со всеми 5 кнопками
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ Сделать публикацию", callback_data="start_story")
     builder.button(text="👤 Мой профиль", callback_data="view_my_profile")
     builder.button(text="🏆 Таблица Лидеров", callback_data="open_leaderboard")
     builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
-    builder.button(text="🎁 Ежедневный подарок (+10 XP)", callback_data="get_free_bonus") # НАША ПЯТАЯ КНОПКА 🔥
+    builder.button(text="🎁 Ежедневный подарок (+10 XP)", callback_data="get_free_bonus")
     builder.adjust(1)
 
     text = (
@@ -304,7 +304,7 @@ async def send_main_menu(message_or_callback, user_id):
     else:
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-# --- ОБРАБОТКА КЛИКА ПО ЕЖЕДНЕВНОМУ ПОДАРКУ (НАЧИСЛЯЕТСЯ ТЕПЕРЬ 10 XP) ---
+# --- ОБРАБОТКА КЛИКА ПО ЕЖЕДНЕВНОМУ ПОДАРКУ ---
 @dp.callback_query(F.data == "get_free_bonus")
 async def process_free_bonus(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -315,7 +315,6 @@ async def process_free_bonus(callback: types.CallbackQuery):
         await callback.answer("⏳ Ты уже забирал свой подарок сегодня! Приходи завтра за новой порцией XP. 😉", show_alert=True)
         return
 
-    # Начисляем ровно 10 XP за клик!
     add_xp_by_user_id(user_id, 10)
     update_user_status(user_id, "last_bonus_date", today_str)
 
@@ -356,13 +355,17 @@ async def view_my_profile(callback: types.CallbackQuery):
     builder.button(text="⬅️ В меню", callback_data="back_to_menu")
     await callback.message.edit_text(profile_card, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-# --- СТАРТ И РЕГИСТРАЦИЯ ---
+# --- СТАРТ И РЕГИСТРАЦИЯ (ИСПРАВЛЕНО!) ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    if is_user_registered(message.from_user.id):
-        await send_main_menu(message, message.from_user.id)
+    user_id = message.from_user.id
+    
+    # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если юзер уже есть в базе — мы его НЕ регистрируем заново, а сразу открываем меню!
+    if is_user_registered(user_id):
+        await send_main_menu(message, user_id)
     else:
+        # Только новые пользователи проходят этот шаг
         await message.answer(
             "👋 **Здравствуйте! Добро пожаловать в нашу social сеть!**\n\n"
             "Придумай и **напиши мне свой уникальный никнейм** для регистрации профиля:"
@@ -371,7 +374,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message(RegStates.waiting_for_nickname, F.text & (F.chat.type == "private"))
 async def process_nickname(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
     nickname = message.text.strip()
+    
     if len(nickname) < 3 or len(nickname) > 20 or "@" in nickname or "/" in nickname:
         await message.answer("❌ Длина от 3 до 20 символов, без знаков @ и /. Напиши другой:")
         return
@@ -379,10 +384,10 @@ async def process_nickname(message: types.Message, state: FSMContext):
         await message.answer("😢 Этот никнейм уже занят! Придумай другой:")
         return
 
-    register_user(message.from_user.id, f"@{message.from_user.username}" if message.from_user.username else "Нет", nickname)
+    register_user(user_id, f"@{message.from_user.username}" if message.from_user.username else "Нет", nickname)
     await message.answer(f"🎉 Никнейм **{nickname}** успешно закреплен!")
     await state.clear()
-    await send_main_menu(message, message.from_user.id)
+    await send_main_menu(message, user_id)
 
 # --- ПРОСМОТР ПРОФИЛЯ АВТОРА ИЗ КАНАЛА ---
 @dp.callback_query(F.data.startswith("viewprof_"))
@@ -478,7 +483,7 @@ async def process_successful_payment(message: types.Message):
             logging.error(f"Ошибка создания ссылки в чат: {e}")
             await message.answer("⭐ **Оплата прошла успешно!** Роль Модератора выдана! Обратись к админу за ссылкой.")
 
-# --- ТАБЛИЦА ЛИДЕРОВ (НАСТОЯЩИЙ ТОП-10) ---
+# --- ТАБЛИЦА ЛИДЕРОВ ---
 @dp.callback_query(F.data == "open_leaderboard")
 async def show_leaderboard(callback: types.CallbackQuery):
     leaders = get_leaderboard()
