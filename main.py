@@ -16,6 +16,9 @@ TARGET_CHANNEL_ID = -1003932701423
 CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки"
 
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
+
+# Путь для сохранения БД на Persistent Disk хостинга Render
+DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
 # ------------------
 
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +27,7 @@ dp = Dispatcher()
 
 # --- МИНИ-ВЕБ СЕРВЕР ДЛЯ ОБХОДА БЛОКИРОВКИ RENDER ---
 async def handle(request):
-    return web.Response(text="Бот работает в фоновом режиме 24/7!")
+    return web.Response(text="Социальная сеть работает 24/7!")
 
 async def start_webhook_server():
     app = web.Application()
@@ -38,7 +41,7 @@ async def start_webhook_server():
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ ---
 def init_db():
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -75,7 +78,7 @@ def init_db():
     conn.close()
 
 def is_user_registered(user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT custom_nickname FROM users WHERE user_id = ?", (user_id,))
     res = cursor.fetchone()
@@ -83,7 +86,7 @@ def is_user_registered(user_id):
     return res is not None and res[0] is not None
 
 def is_nickname_taken(nickname):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id FROM users WHERE LOWER(custom_nickname) = LOWER(?)", (nickname,))
     res = cursor.fetchone()
@@ -91,7 +94,7 @@ def is_nickname_taken(nickname):
     return res is not None
 
 def register_user(user_id, tg_username, nickname):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO users (user_id, tg_username, custom_nickname) 
@@ -102,7 +105,7 @@ def register_user(user_id, tg_username, nickname):
     conn.close()
 
 def get_user_profile(user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT custom_nickname, is_moderator, is_vip, xp, level FROM users WHERE user_id = ?", (user_id,))
     res = cursor.fetchone()
@@ -112,7 +115,7 @@ def get_user_profile(user_id):
     return None
 
 def get_profile_by_nickname(nickname):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, is_moderator, is_vip, xp, level FROM users WHERE LOWER(custom_nickname) = LOWER(?)", (nickname,))
     res = cursor.fetchone()
@@ -122,7 +125,7 @@ def get_profile_by_nickname(nickname):
     return None
 
 def get_user_rank(user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT rank FROM (
@@ -131,17 +134,29 @@ def get_user_rank(user_id):
     """, (user_id,))
     res = cursor.fetchone()
     conn.close()
-    return res[0] if res else "Не определен"
+    return res[0] if res else 999
+
+def get_top_title(rank):
+    """Выдаёт красивую плашку в зависимости от места в топе"""
+    if rank == 1:
+        return "🥇 Топ-1 Сети"
+    elif rank == 2:
+        return "🥈 Топ-2 Сети"
+    elif rank == 3:
+        return "🥉 Топ-3 Сети"
+    elif 4 <= rank <= 10:
+        return "💎 Элита Топа"
+    return None
 
 def update_user_status(user_id, field, value):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(f"UPDATE users SET {field} = ? WHERE user_id = ?", (value, user_id))
     conn.commit()
     conn.close()
 
 def add_xp_by_nickname(nickname, amount):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, xp FROM users WHERE LOWER(custom_nickname) = LOWER(?)", (nickname,))
     res = cursor.fetchone()
@@ -154,14 +169,14 @@ def add_xp_by_nickname(nickname, amount):
     conn.close()
 
 def save_channel_post(message_id, nickname):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO channel_posts (message_id, author_nickname) VALUES (?, ?)", (message_id, nickname))
     conn.commit()
     conn.close()
 
 def get_author_by_post(message_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT author_nickname FROM channel_posts WHERE message_id = ?", (message_id,))
     res = cursor.fetchone()
@@ -169,7 +184,7 @@ def get_author_by_post(message_id):
     return res[0] if res else None
 
 def get_leaderboard():
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT custom_nickname, level, xp FROM users WHERE custom_nickname IS NOT NULL ORDER BY level DESC, xp DESC LIMIT 10")
     rows = cursor.fetchall()
@@ -177,7 +192,7 @@ def get_leaderboard():
     return rows
 
 def toggle_like(message_id, user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM post_dislikes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     cursor.execute("SELECT 1 FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
@@ -197,7 +212,7 @@ def toggle_like(message_id, user_id):
     return change, total_likes, total_dislikes
 
 def toggle_dislike(message_id, user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM post_likes WHERE message_id = ? AND user_id = ?", (message_id, user_id))
     had_like = cursor.fetchone() is not None
@@ -227,7 +242,7 @@ class StoryStates(StatesGroup):
 
 # --- ГЛАВНОЕ МЕНЮ ---
 async def send_main_menu(message_or_callback, user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
     res = cursor.fetchone()
@@ -239,23 +254,57 @@ async def send_main_menu(message_or_callback, user_id):
     conn.close()
 
     profile = get_user_profile(user_id)
+    rank = get_user_rank(user_id)
+    top_title = get_top_title(rank)
+    
+    # Сборка красивого приветственного статуса
+    status_line = f"🏅 Уровень: `{profile['level']}` ({profile['xp']} XP)"
+    if top_title:
+        status_line += f"\n🏆 Привилегия топа: **{top_title}**"
+
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ Сделать публикацию", callback_data="start_story")
-    builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
+    builder.button(text="👤 Мой профиль", callback_data="view_my_profile")
     builder.button(text="🏆 Таблица Лидеров", callback_data="open_leaderboard")
+    builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
     builder.adjust(1)
 
     text = (
         f"👋 **Привет, {profile['nickname']}! Добро пожаловать в социальную сеть!**\n\n"
-        f"🏅 Твой уровень: `{profile['level']}` ({profile['xp']} XP)\n"
-        f"👑 VIP-статус: {'✅ Активен (Доступен МУЛЬТИМЕДИА режим! 🔥)' if profile['is_vip'] else '❌ Не куплен (Только обычный текст)'}\n"
-        f"⭐ Модератор: {'✅ Активен' if profile['is_moderator'] else '❌ Не куплен'}\n\n"
+        f"{status_line}\n"
+        f"👑 VIP-статус: {'✅ Активен (Доступен МУЛЬТИМЕДИА режим! 🔥)' if profile['is_vip'] else '❌ Не куплен'}\n\n"
         f"Выбирай действие в меню ниже 👇"
     )
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+# --- ПРОСМОТР СОБСТВЕННОГО ПРОФИЛЯ ---
+@dp.callback_query(F.data == "view_my_profile")
+async def view_my_profile(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    prof = get_user_profile(user_id)
+    rank = get_user_rank(user_id)
+    top_title = get_top_title(rank)
+    
+    vip_text = "👑 Да (VIP-Пользователь)" if prof["is_vip"] else "❌ Нет"
+    mod_text = "⭐ Да (Модератор)" if prof["is_moderator"] else "❌ Нет"
+    privilege_text = top_title if top_title else "Пока отсутствует (Попади в ТОП-10! 🚀)"
+
+    profile_card = (
+        f"👤 **ТВОЙ ЛИЧНЫЙ ПРОФИЛЬ:**\n\n"
+        f"🆔 Твой Никнейм: `{prof['nickname']}`\n"
+        f"📊 Место в общем рейтинге: **#{rank}**\n"
+        f"🏅 Твой уровень: `{prof['level']}`\n"
+        f"✨ Твой опыт: `{prof['xp']} XP`\n"
+        f"🏆 Статус лидера: **{privilege_text}**\n\n"
+        f"💎 VIP-статус: {vip_text}\n"
+        f"💼 Модератор: {mod_text}"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ В меню", callback_data="back_to_menu")
+    await callback.message.edit_text(profile_card, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 # --- СТАРТ И РЕГИСТРАЦИЯ ---
 @dp.message(CommandStart())
@@ -294,10 +343,14 @@ async def channel_view_profile(callback: types.CallbackQuery):
         await callback.answer("❌ Профиль этого автора не найден.", show_alert=True)
         return
     rank = get_user_rank(prof["user_id"])
+    top_title = get_top_title(rank)
+    
     vip_text = "👑 Да (VIP-Пользователь)" if prof["is_vip"] else "❌ Нет"
     mod_text = "⭐ Да (Модератор)" if prof["is_moderator"] else "❌ Нет"
+    privilege_text = f" ({top_title})" if top_title else ""
+
     profile_card = (
-        f"👤 **АНКЕТА АВТОРА:** `{prof['nickname']}`\n\n"
+        f"👤 **АНКЕТА АВТОРА:** `{prof['nickname']}`{privilege_text}\n\n"
         f"📊 Место в общем Топе: **#{rank}**\n"
         f"🏅 Уровень автора: `{prof['level']}`\n"
         f"✨ Опыт автора: `{prof['xp']} XP`\n"
@@ -308,7 +361,7 @@ async def channel_view_profile(callback: types.CallbackQuery):
         await bot.send_message(chat_id=callback.from_user.id, text=profile_card, parse_mode="Markdown")
         await callback.answer(f"📋 Анкета автора {target_nick} отправлена тебе в ЛС!", show_alert=False)
     except Exception:
-        await callback.answer("⚠️ Чтобы увидеть профиль, сначала перейди в бота и нажми /start!", show_alert=True)
+        await callback.answer("⚠️ Чтобы увидеть профиль, сначала перейди в бота и нажми кнопку 'Старт'!", show_alert=True)
 
 # --- МАГАЗИН STARS ---
 @dp.callback_query(F.data == "open_shop")
@@ -355,7 +408,7 @@ async def process_successful_payment(message: types.Message):
     user_id = message.from_user.id
     if payload == "buy_vip_status_payload":
         update_user_status(user_id, "is_vip", 1)
-        await message.answer("👑 **Оплата прошла успешно!** VIP-статус активирован! Перезапустите меню через /start.")
+        await message.answer("👑 **Оплата прошла успешно!** VIP-статус активирован!")
     elif payload == "buy_moder_status_payload":
         update_user_status(user_id, "is_moderator", 1)
         try:
@@ -375,15 +428,26 @@ async def process_successful_payment(message: types.Message):
             logging.error(f"Ошибка создания ссылки в чат: {e}")
             await message.answer("⭐ **Оплата прошла успешно!** Роль Модератора выдана! Обратись к админу за ссылкой.")
 
-# --- ТАБЛИЦА ЛИДЕРОВ ---
+# --- ТАБЛИЦА ЛИДЕРОВ (НАСТОЯЩИЙ ТОП-10) ---
 @dp.callback_query(F.data == "open_leaderboard")
 async def show_leaderboard(callback: types.CallbackQuery):
     leaders = get_leaderboard()
-    text = "🏆 **ТАБЛИЦА ЛИДЕРОВ (ТОП-10)**\n\n"
-    medals = ["🥇", "🥈", "🥉"]
+    text = "🏆 **ТАБЛИЦА ЛИДЕРОВ СЕТИ (ТОП-10)**\n\n"
+    
     for i, user in enumerate(leaders):
-        prefix = medals[i] if i < 3 else f"*{i+1}.*"
+        rank = i + 1
+        # Раздаем уникальные эмодзи-титулы внутри списка
+        if rank == 1:
+            prefix = "🥇"
+        elif rank == 2:
+            prefix = "🥈"
+        elif rank == 3:
+            prefix = "🥉"
+        else:
+            prefix = f"🔹 `{rank}`"
+            
         text += f"{prefix} `{user[0]}` — `{user[1]} Уровень` ({user[2]} XP)\n"
+        
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="back_to_menu")
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
@@ -396,7 +460,7 @@ async def back_to_menu(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "start_story")
 async def start_story(callback: types.CallbackQuery, state: FSMContext):
     if not is_user_registered(callback.from_user.id):
-        await callback.answer("Сначала зарегистрируйся через /start!", show_alert=True)
+        await callback.answer("Сначала зарегистрируйся!", show_alert=True)
         return
     profile = get_user_profile(callback.from_user.id)
     if profile["is_vip"]:
@@ -474,10 +538,16 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
     user = callback.from_user
     profile = get_user_profile(user.id)
     vip_prefix = "👑 [VIP] " if profile["is_vip"] == 1 else ""
+    
+    # Получаем титул топа для анкеты в админ-чате
+    rank = get_user_rank(user.id)
+    top_title = get_top_title(rank)
+    top_prefix = f" [{top_title}]" if top_title else ""
+
     tg_username = f"@{user.username}" if user.username else "Нет"
     user_info = (
         f"👤 **Профиль:** [{user.full_name}](tg://user?id={user.id}) ({tg_username})\n"
-        f"🆔 **Ник в БД:** {vip_prefix}`{profile['nickname']}`"
+        f"🆔 **Ник в БД:** {vip_prefix}`{profile['nickname']}`{top_prefix}"
     )
     if "anon" in callback.data:
         privacy_status = "🥷 **АНОНИМНО**"
@@ -521,7 +591,7 @@ def get_channel_keyboard(message_id, likes=0, dislikes=0, nickname=None):
         builder.row(types.InlineKeyboardButton(text=f"👤 Профиль автора: {nickname}", callback_data=f"viewprof_{nickname}"))
     return builder.as_markup()
 
-# --- МОДЕРАЦИЯ (ИНФО О МОДЕРАТОРЕ ТОЛЬКО В АДМИН-ЧАТЕ) ---
+# --- МОДЕРАЦИЯ ---
 @dp.callback_query(F.data.startswith("ap_"))
 async def process_moderation_approve(callback: types.CallbackQuery):
     if callback.message.chat.id != MODERATION_CHAT_ID:
@@ -535,15 +605,22 @@ async def process_moderation_approve(callback: types.CallbackQuery):
     except (IndexError, AttributeError):
         story_content = "[Медиафайл]" if not callback.message.caption else callback.message.caption
 
-    # Получаем никнейм модератора, который одобрил публикацию
     mod_user = callback.from_user
     mod_name = f"@{mod_user.username}" if mod_user.username else mod_user.full_name
 
-    vip_emoji = ""
     nickname_for_db = action.split("___")[1]
     prof = get_profile_by_nickname(nickname_for_db)
-    if prof and prof["is_vip"] == 1:
-        vip_emoji = "👑 "
+    
+    # Сборка префиксов для публикации (VIP-корона + Привилегия за топ)
+    vip_emoji = ""
+    rank_emoji = ""
+    if prof:
+        if prof["is_vip"] == 1:
+            vip_emoji = "👑 "
+        author_rank = get_user_rank(prof["user_id"])
+        top_title = get_top_title(author_rank)
+        if top_title:
+            rank_emoji = f" [{top_title}]"
 
     photo_id = callback.message.photo[-1].file_id if callback.message.photo else None
     voice_id = callback.message.voice.file_id if callback.message.voice else None
@@ -574,19 +651,17 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0))
             save_channel_post(out_msg.message_id, nickname_for_db)
         
-        # Лог только для админов
         text_log = f"🟢 Опубликовано анонимно!\n📋 Проверил модератор: {mod_name}\n\n{clean_text}"
 
-    # 2. ПОД НИКОМ
+    # 2. ПОД НИКОМ (С ПРИВИЛЕГИЕЙ ТОПА АВТОРА)
     elif action.startswith("ap_pb"):
         vip_status_text = "✨ VIP-Автор" if vip_emoji else "Автор"
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         
-        # Текст поста для публичного канала (без инфы о модераторе)
         if clean_text:
-            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`"
+            public_text = f"{vip_emoji}{clean_text}\n\n✍️ **{vip_status_text}:** `{nickname_for_db}`{rank_emoji}"
         else:
-            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`"
+            public_text = f"✍️ **{vip_status_text}:** `{nickname_for_db}`{rank_emoji}"
             
         fake_kb = get_channel_keyboard(0, 0, 0, nickname_for_db)
         
@@ -606,7 +681,6 @@ async def process_moderation_approve(callback: types.CallbackQuery):
             await bot.edit_message_reply_markup(chat_id=TARGET_CHANNEL_ID, message_id=out_msg.message_id, reply_markup=get_channel_keyboard(out_msg.message_id, 0, 0, nickname_for_db))
             save_channel_post(out_msg.message_id, nickname_for_db)
             
-        # Лог только для админов
         text_log = f"🟢 Опубликовано под ником {nickname_for_db}!\n📋 Проверил модератор: {mod_name}\n\n{clean_text}"
 
     try:
@@ -622,11 +696,8 @@ async def process_moderation_approve(callback: types.CallbackQuery):
 async def process_moderation_reject(callback: types.CallbackQuery):
     if callback.message.chat.id != MODERATION_CHAT_ID:
         return
-    
-    # Получаем никнейм модератора, отклонившего пост
     mod_user = callback.from_user
     mod_name = f"@{mod_user.username}" if mod_user.username else mod_user.full_name
-    
     try:
         if callback.message.photo or callback.message.voice or callback.message.video:
             await callback.message.edit_caption(caption=f"🔴 Отклонено модератором: {mod_name}")
@@ -677,6 +748,12 @@ async def process_dislike_click(callback: types.CallbackQuery):
 # --- ЗАПУСК БОТА ---
 async def main():
     init_db()
+    
+    # НАСТРОЙКА КНОПКИ МЕНЮ КОМАНД (палочка "Старт" возле клавиатуры)
+    await bot.set_my_commands([
+        types.BotCommand(command="start", description="📱 Перезапустить главное меню соцсети")
+    ])
+    
     asyncio.create_task(start_webhook_server())
     await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
 
