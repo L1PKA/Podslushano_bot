@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sqlite3
 import os
+from datetime import datetime
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -17,9 +18,12 @@ CHANNEL_USERNAME = "твой_юзернейм_канала_без_собачки
 
 SECRET_ADMIN_CODE = "ДЖЕРРИ_АДМИН_2026" 
 
-# Путь для сохранения БД на Persistent Disk хостинга Render
+# СЮДА ВСТАВЛЯЙ ССЫЛКУ, КОТОРУЮ СКОПИРУЕШЬ ИЗ БЛОКА SOCIAL TRAFFIC (GET LINK)
+PARTNER_CLICK_URL = "ВСТАВЬ_СЮДА_ПРАВИЛЬНУЮ_ССЫЛКУ_ОТ_MONETAG"
+
+# Путь для сохранения БД на хостинге Render
 DB_PATH = "/data/database.db" if os.path.exists("/data") else "database.db"
-# ------------------
+------------------
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -51,7 +55,8 @@ def init_db():
             is_moderator INTEGER DEFAULT 0,
             is_vip INTEGER DEFAULT 0,
             xp INTEGER DEFAULT 0,
-            level INTEGER DEFAULT 1
+            level INTEGER DEFAULT 1,
+            last_bonus_date TEXT DEFAULT ""
         )
     """)
     cursor.execute("""
@@ -74,6 +79,12 @@ def init_db():
             PRIMARY KEY (message_id, user_id)
         )
     """)
+    
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "last_bonus_date" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_bonus_date TEXT DEFAULT ''")
+        
     conn.commit()
     conn.close()
 
@@ -107,11 +118,11 @@ def register_user(user_id, tg_username, nickname):
 def get_user_profile(user_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT custom_nickname, is_moderator, is_vip, xp, level FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT custom_nickname, is_moderator, is_vip, xp, level, last_bonus_date FROM users WHERE user_id = ?", (user_id,))
     res = cursor.fetchone()
     conn.close()
     if res:
-        return {"nickname": res[0], "is_moderator": res[1], "is_vip": res[2], "xp": res[3], "level": res[4]}
+        return {"nickname": res[0], "is_moderator": res[1], "is_vip": res[2], "xp": res[3], "level": res[4], "last_bonus_date": res[5]}
     return None
 
 def get_profile_by_nickname(nickname):
@@ -137,7 +148,6 @@ def get_user_rank(user_id):
     return res[0] if res else 999
 
 def get_top_title(rank):
-    """Выдаёт красивую плашку в зависимости от места в топе"""
     if rank == 1:
         return "🥇 Топ-1 Сети"
     elif rank == 2:
@@ -153,6 +163,19 @@ def update_user_status(user_id, field, value):
     cursor = conn.cursor()
     cursor.execute(f"UPDATE users SET {field} = ? WHERE user_id = ?", (value, user_id))
     conn.commit()
+    conn.close()
+
+def add_xp_by_user_id(user_id, amount):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT xp FROM users WHERE user_id = ?", (user_id,))
+    res = cursor.fetchone()
+    if res:
+        current_xp = res[0]
+        new_xp = max(0, current_xp + amount)
+        new_level = (new_xp // 10) + 1
+        cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user_id))
+        conn.commit()
     conn.close()
 
 def add_xp_by_nickname(nickname, amount):
@@ -257,13 +280,13 @@ async def send_main_menu(message_or_callback, user_id):
     rank = get_user_rank(user_id)
     top_title = get_top_title(rank)
     
-    # Сборка красивого приветственного статуса
     status_line = f"🏅 Уровень: `{profile['level']}` ({profile['xp']} XP)"
     if top_title:
         status_line += f"\n🏆 Привилегия топа: **{top_title}**"
 
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ Сделать публикацию", callback_data="start_story")
+    builder.button(text="🎁 Забрать бонус (+5 XP)", callback_data="get_free_bonus")
     builder.button(text="👤 Мой профиль", callback_data="view_my_profile")
     builder.button(text="🏆 Таблица Лидеров", callback_data="open_leaderboard")
     builder.button(text="💎 Магазин привилегий", callback_data="open_shop")
@@ -279,6 +302,32 @@ async def send_main_menu(message_or_callback, user_id):
         await message_or_callback.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     else:
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+# --- ОБРАБОТКА КЛИКА ПО БОНУСУ (ПОД СМАРТЛИНК) ---
+@dp.callback_query(F.data == "get_free_bonus")
+async def process_free_bonus(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    profile = get_user_profile(user_id)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if profile["last_bonus_date"] == today_str:
+        await callback.answer("⏳ Ты уже забирал бонус сегодня! Приходи завтра. 😉", show_alert=True)
+        return
+
+    # Начисляем опыт сразу
+    add_xp_by_user_id(user_id, 5)
+    update_user_status(user_id, "last_bonus_date", today_str)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌍 ПОЛУЧИТЬ БОНУС (ОТКРЫТЬ ССЫЛКУ)", url=PARTNER_CLICK_URL)
+    builder.button(text="⬅️ В меню", callback_data="back_to_menu")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "🎉 **Вам успешно начислено +5 XP для продвижения в ТОП-10!**\n\n"
+        "👉 Чтобы подтвердить получение бонуса и поддержать нашу соцсеть, **обязательно нажми на синюю кнопку ниже** и ознакомься с интересным предложением от спонсоров! Тебе это займет 5 секунд, а боту поможет работать дальше! ❤️",
+        reply_markup=builder.as_markup(), parse_mode="Markdown"
+    )
 
 # --- ПРОСМОТР СОБСТВЕННОГО ПРОФИЛЯ ---
 @dp.callback_query(F.data == "view_my_profile")
@@ -314,7 +363,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await send_main_menu(message, message.from_user.id)
     else:
         await message.answer(
-            "👋 **Здравствуйте! Добро пожаловать в нашу социальную сеть!**\n\n"
+            "👋 **Здравствуйте! Добро пожаловать в нашу social сеть!**\n\n"
             "Придумай и **напиши мне свой уникальный никнейм** для регистрации профиля:"
         )
         await state.set_state(RegStates.waiting_for_nickname)
@@ -372,7 +421,7 @@ async def open_shop(callback: types.CallbackQuery):
     builder.button(text="⬅️ Назад", callback_data="back_to_menu")
     builder.adjust(1)
     await callback.message.edit_text(
-        "🏪 **Магазин внутренних привилегий**\n\n"
+        "🏪 **Магазин внутренних привилегий и партнеров**\n\n"
         "• **VIP статус (50 ⭐):** Выделение постов короной + быстрая проверка + **СВОБОДА ПУБЛИКАЦИЙ** (Картинки, Стикеры, Голосовые, Видео)!\n"
         "• **Модератор (300 ⭐):** Полный доступ в закрытый админ-чат модерации постов.",
         reply_markup=builder.as_markup(), parse_mode="Markdown"
@@ -382,7 +431,7 @@ async def open_shop(callback: types.CallbackQuery):
 async def send_vip_invoice(callback: types.CallbackQuery):
     await callback.message.answer_invoice(
         title="👑 VIP-Статус сети",
-        description="Разблокирует отправку стикеров/фото/видео в публикации, выделение короной и быструю модерацию.",
+        description="Разблокирует отправку стикеров/фото/видео в публикации, выделение короной и быстрой модерацию.",
         payload="buy_vip_status_payload", provider_token="", currency="XTR",
         prices=[types.LabeledPrice(label="Покупка VIP", amount=50)]
     )
@@ -436,7 +485,6 @@ async def show_leaderboard(callback: types.CallbackQuery):
     
     for i, user in enumerate(leaders):
         rank = i + 1
-        # Раздаем уникальные эмодзи-титулы внутри списка
         if rank == 1:
             prefix = "🥇"
         elif rank == 2:
@@ -539,7 +587,6 @@ async def process_privacy_choice(callback: types.CallbackQuery, state: FSMContex
     profile = get_user_profile(user.id)
     vip_prefix = "👑 [VIP] " if profile["is_vip"] == 1 else ""
     
-    # Получаем титул топа для анкеты в админ-чате
     rank = get_user_rank(user.id)
     top_title = get_top_title(rank)
     top_prefix = f" [{top_title}]" if top_title else ""
@@ -611,7 +658,6 @@ async def process_moderation_approve(callback: types.CallbackQuery):
     nickname_for_db = action.split("___")[1]
     prof = get_profile_by_nickname(nickname_for_db)
     
-    # Сборка префиксов для публикации (VIP-корона + Привилегия за топ)
     vip_emoji = ""
     rank_emoji = ""
     if prof:
@@ -629,7 +675,6 @@ async def process_moderation_approve(callback: types.CallbackQuery):
 
     out_msg = None
     
-    # 1. АНОНИМНО
     if action.startswith("ap_an"):
         clean_text = story_content if story_content != "[Медиафайл]" else ""
         final_caption = f"{vip_emoji}{clean_text}"
@@ -653,7 +698,6 @@ async def process_moderation_approve(callback: types.CallbackQuery):
         
         text_log = f"🟢 Опубликовано анонимно!\n📋 Проверил модератор: {mod_name}\n\n{clean_text}"
 
-    # 2. ПОД НИКОМ (С ПРИВИЛЕГИЕЙ ТОПА АВТОРА)
     elif action.startswith("ap_pb"):
         vip_status_text = "✨ VIP-Автор" if vip_emoji else "Автор"
         clean_text = story_content if story_content != "[Медиафайл]" else ""
@@ -749,7 +793,6 @@ async def process_dislike_click(callback: types.CallbackQuery):
 async def main():
     init_db()
     
-    # НАСТРОЙКА КНОПКИ МЕНЮ КОМАНД (палочка "Старт" возле клавиатуры)
     await bot.set_my_commands([
         types.BotCommand(command="start", description="📱 Перезапустить главное меню соцсети")
     ])
